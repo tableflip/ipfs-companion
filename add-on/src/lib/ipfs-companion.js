@@ -5,10 +5,10 @@ const browser = require('webextension-polyfill')
 const { optionDefaults, storeMissingOptions } = require('./options')
 const { initState } = require('./state')
 const IsIpfs = require('is-ipfs')
-const IpfsApi = require('ipfs-api')
 const { createIpfsPathValidator, safeIpfsPath, urlAtPublicGw } = require('./ipfs-path')
 const createDnsLink = require('./dns-link')
 const { createRequestModifier } = require('./ipfs-request')
+const { initIpfsClient } = require('./ipfs-client')
 
 // INIT
 // ===================================================================
@@ -23,7 +23,8 @@ module.exports = async function init () {
   try {
     const options = await browser.storage.local.get(optionDefaults)
     state = window.state = initState(options)
-    ipfs = window.ipfs = initIpfsApi(options.ipfsApiUrl)
+    ipfs = window.ipfs = await initIpfsClient(options)
+    console.log('[ipfs-companion] ipfs init complete')
     dnsLink = createDnsLink(getState)
     ipfsPathValidator = createIpfsPathValidator(getState, dnsLink)
     modifyRequest = createRequestModifier(getState, dnsLink, ipfsPathValidator)
@@ -48,11 +49,6 @@ module.exports.destroy = function () {
 
 function getState () {
   return state
-}
-
-function initIpfsApi (ipfsApiUrl) {
-  const url = new URL(ipfsApiUrl)
-  return IpfsApi({host: url.hostname, port: url.port, procotol: url.protocol})
 }
 
 function registerListeners () {
@@ -249,7 +245,7 @@ async function addFromURL (info) {
       const response = await fetch(srcUrl, fetchOptions)
       const reader = new FileReader()
       reader.onloadend = () => {
-        const buffer = ipfs.Buffer.from(reader.result)
+        const buffer = Buffer.from(reader.result)
         ipfs.add(buffer, uploadResultHandler)
       }
       reader.readAsArrayBuffer(await response.blob())
@@ -590,7 +586,7 @@ function updateAutomaticModeRedirectState (oldPeerCount, newPeerCount) {
   }
 }
 
-function onStorageChange (changes, area) {
+async function onStorageChange (changes, area) {
   for (let key in changes) {
     let change = changes[key]
     if (change.oldValue !== change.newValue) {
@@ -599,7 +595,7 @@ function onStorageChange (changes, area) {
       if (key === 'ipfsApiUrl') {
         state.apiURL = new URL(change.newValue)
         state.apiURLString = state.apiURL.toString()
-        ipfs = window.ipfs = initIpfsApi(state.apiURLString)
+        ipfs = window.ipfs = await initIpfsClient(state)
         apiStatusUpdate()
       } else if (key === 'ipfsApiPollMs') {
         setApiStatusUpdateInterval(change.newValue)
