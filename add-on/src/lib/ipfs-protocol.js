@@ -1,6 +1,24 @@
 const { mimeSniff } = require('./mime-sniff')
 const dirView = require('./dir-view')
 const PathUtils = require('ipfs/src/http/gateway/utils/path')
+const toStream = require('into-stream')
+
+function formatResponse ({mimeType, data, charset}) {
+  if (!data.pipe) {
+    // console.log('TO STREAM', data)
+    data = toStream(data)
+  }
+  // TODO: add charset for text reponses.
+  const res = {
+    statusCode: 200,
+    headers: {
+      'Content-Type': mimeType
+    },
+    data: data
+  }
+  // console.log('IPFS RES', res)
+  return res
+}
 
 exports.createIpfsUrlProtocolHandler = (getIpfs) => {
   return async (request, reply) => {
@@ -15,10 +33,10 @@ exports.createIpfsUrlProtocolHandler = (getIpfs) => {
     try {
       const {data, mimeType, charset} = await getDataAndGuessMimeType(ipfs, path)
       console.log(`[ipfs-companion] returning ${path} as mime ${mimeType} and charset ${charset}`)
-      reply({mimeType, data, charset})
+      reply(formatResponse({mimeType, data, charset}))
     } catch (err) {
       console.error('[ipfs-companion] failed to get data', err)
-      reply({mimeType: 'text/html', data: `Error ${err.message}`})
+      reply(formatResponse({mimeType: 'text/html', data: `Error ${err.message}`}))
     }
 
     console.timeEnd('[ipfs-companion] IpfsUrlProtocolHandler')
@@ -26,19 +44,16 @@ exports.createIpfsUrlProtocolHandler = (getIpfs) => {
 }
 
 async function getDataAndGuessMimeType (ipfs, path) {
-  let data
-
   try {
-    data = await ipfs.files.cat(path)
+    const buffer = await ipfs.files.cat(path)
+    const mimeType = mimeSniff(buffer, path) || 'text/plain'
+    return {mimeType, data: buffer}
   } catch (err) {
     if (err.message.toLowerCase() === 'this dag node is a directory') {
       return getDirectoryListingOrIndexData(ipfs, path)
     }
     throw err
   }
-
-  const mimeType = mimeSniff(data, path) || 'text/plain'
-  return {mimeType, data: data.toString('utf8'), charset: 'utf8'}
 }
 
 async function getDirectoryListingOrIndexData (ipfs, path) {

@@ -82,6 +82,7 @@
     "choo": "6.8.0",
     "doc-sniff": "1.0.1",
     "file-type": "7.6.0",
+    "into-stream": "^3.1.0",
     "ipfs": "0.27.7",
     "ipfs-api": "18.1.1",
     "ipfs-css": "0.2.0",

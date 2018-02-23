@@ -77,8 +77,8 @@ module.exports = async function init () {
     browser.runtime.onConnect.addListener(onRuntimeConnect)
 
     if (runtime.hasNativeProtocolHandler) {
-      console.log('[ipfs-companion] registerStringProtocol available. Adding ipfs:// handler')
-      browser.protocol.registerStringProtocol('ipfs', createIpfsUrlProtocolHandler(() => ipfs))
+      console.log('[ipfs-companion] registerStreamProtocol available. Adding ipfs:// handler')
+      browser.protocol.registerStreamProtocol('ipfs', createIpfsUrlProtocolHandler(() => ipfs))
     } else {
       console.log('[ipfs-companion] browser.protocol.registerStringProtocol not available, native protocol will not be registered')
     }
