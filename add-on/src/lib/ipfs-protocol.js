@@ -1,24 +1,8 @@
 const { mimeSniff } = require('./mime-sniff')
+const peek = require('buffer-peek-stream')
 const dirView = require('./dir-view')
 const PathUtils = require('ipfs/src/http/gateway/utils/path')
 const toStream = require('into-stream')
-
-function formatResponse ({mimeType, data, charset}) {
-  if (!data.pipe) {
-    // console.log('TO STREAM', data)
-    data = toStream(data)
-  }
-  // TODO: add charset for text reponses.
-  const res = {
-    statusCode: 200,
-    headers: {
-      'Content-Type': mimeType
-    },
-    data: data
-  }
-  // console.log('IPFS RES', res)
-  return res
-}
 
 exports.createIpfsUrlProtocolHandler = (getIpfs) => {
   return async (request, reply) => {
@@ -28,45 +12,83 @@ exports.createIpfsUrlProtocolHandler = (getIpfs) => {
     let path = request.url.replace('ipfs://', '/')
     path = path.startsWith('/ipfs') ? path : `/ipfs${path}`
 
-    const ipfs = getIpfs()
+    let res
 
     try {
-      const {data, mimeType, charset} = await getDataAndGuessMimeType(ipfs, path)
-      console.log(`[ipfs-companion] returning ${path} as mime ${mimeType} and charset ${charset}`)
-      reply(formatResponse({mimeType, data, charset}))
+      res = await getResponse(getIpfs(), path)
     } catch (err) {
-      console.error('[ipfs-companion] failed to get data', err)
-      reply(formatResponse({mimeType: 'text/html', data: `Error ${err.message}`}))
+      console.error(`[ipfs-companion] failed handle ${request.url}`, err)
+
+      res = {
+        statusCode: 500,
+        headers: { 'content-type': 'text/plain' },
+        data: toStream(err.message)
+      }
     }
 
+    console.log(`[ipfs-companion] ${request.url} => ${res.statusCode}`, res.headers)
+    reply(res)
     console.timeEnd('[ipfs-companion] IpfsUrlProtocolHandler')
   }
 }
 
-async function getDataAndGuessMimeType (ipfs, path) {
+async function getResponse (ipfs, path) {
+  let listing
+
   try {
-    const buffer = await ipfs.files.cat(path)
-    const mimeType = mimeSniff(buffer, path) || 'text/plain'
-    return {mimeType, data: buffer}
+    listing = await ipfs.ls(path)
   } catch (err) {
-    if (err.message.toLowerCase() === 'this dag node is a directory') {
-      return getDirectoryListingOrIndexData(ipfs, path)
+    if (err.message === 'file does not exist') {
+      return {
+        statusCode: 404,
+        headers: { 'content-type': 'text/plain' },
+        data: toStream('Not found')
+      }
     }
+
     throw err
+  }
+
+  if (listing.length) {
+    return getDirectoryListingOrIndexResponse(ipfs, path, listing)
+  }
+
+  const { stream, contentType } = await new Promise((resolve, reject) => {
+    peek(ipfs.files.catReadableStream(path), 512, (err, data, stream) => {
+      if (err) return reject(err)
+      const contentType = mimeSniff(data, path) || 'text/plain'
+      resolve({ stream, contentType })
+    })
+  })
+
+  return {
+    statusCode: 200,
+    headers: { 'content-type': contentType },
+    data: stream
   }
 }
 
-async function getDirectoryListingOrIndexData (ipfs, path) {
-  const listing = await ipfs.ls(path)
-  const index = listing.find((l) => ['index', 'index.html', 'index.htm'].includes(l.name))
+function getDirectoryListingOrIndexResponse (ipfs, path, listing) {
+  const indexFileNames = ['index', 'index.html', 'index.htm']
+  const index = listing.find((l) => indexFileNames.includes(l.name))
 
   if (index) {
-    return getDataAndGuessMimeType(ipfs, PathUtils.joinURLParts(path, index.name))
+    let contentType = 'text/plain'
+
+    if (index.name.endsWith('.html') || index.name.endsWith('.htm')) {
+      contentType = 'text/html'
+    }
+
+    return {
+      statusCode: 200,
+      headers: { 'content-type': contentType },
+      data: ipfs.files.catReadableStream(PathUtils.joinURLParts(path, index.name))
+    }
   }
 
   return {
-    mimeType: 'text/html',
-    data: dirView.render(path.replace(/^\/ipfs\//, 'ipfs://'), listing),
-    charset: 'utf8'
+    statusCode: 200,
+    headers: { 'content-type': 'text/html' },
+    data: toStream(dirView.render(path.replace(/^\/ipfs\//, 'ipfs://'), listing))
   }
 }

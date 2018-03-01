@@ -79,6 +79,7 @@
     "web-ext": "2.4.0"
   },
   "dependencies": {
+    "buffer-peek-stream": "^1.0.1",
     "choo": "6.8.0",
     "doc-sniff": "1.0.1",
     "file-type": "7.6.0",
