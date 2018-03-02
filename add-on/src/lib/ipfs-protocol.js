@@ -49,7 +49,7 @@ async function getResponse (ipfs, path) {
     throw err
   }
 
-  if (listing.length) {
+  if (isDirectory(listing)) {
     return getDirectoryListingOrIndexResponse(ipfs, path, listing)
   }
 
@@ -66,6 +66,16 @@ async function getResponse (ipfs, path) {
     headers: { 'content-type': contentType },
     data: stream
   }
+}
+
+function isDirectory (listing) {
+  if (!listing.length) return false
+  if (listing.length === 1) return true
+
+  // If every path in the listing is the same, IPFS has listed blocks for a file
+  // if not then it is a directory listing.
+  const path = listing[0].path
+  return !listing.every(f => f.path === path)
 }
 
 function getDirectoryListingOrIndexResponse (ipfs, path, listing) {
