@@ -35,6 +35,22 @@ exports.createIpfsUrlProtocolHandler = (getIpfs) => {
 async function getResponse (ipfs, path) {
   let listing
 
+  // We're using ipfs.ls to figure out if a path is a file or a directory.
+  //
+  // If the listing is empty then it's (likely) a file
+  // If the listing has 1 entry then it's a directory
+  // If the listing has > 1 entry && all the paths are the same then directory
+  // else file
+  //
+  // It's not pretty, but the alternative is to use the object or dag API's
+  // and inspect the data returned by them to see if it's a file or dir.
+  //
+  // Right now we can't use either of these because:
+  // 1. js-ipfs object API does not take paths (only cid)
+  // 2. js-ipfs-api does not support dag API at all
+  //
+  // The second alternative would be to resolve the path ourselves using the
+  // object API, but that could take a while for long paths.
   try {
     listing = await ipfs.ls(path)
   } catch (err) {
